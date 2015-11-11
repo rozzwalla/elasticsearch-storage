@@ -2,6 +2,7 @@
 
 var platform      = require('./platform'),
 	elasticsearch = require('elasticsearch'),
+	async   	  = require('async'),
 	_			  = require('lodash'),
 	isJSON        = require('is-json'),
 	moment		  = require('moment'),
@@ -12,16 +13,50 @@ var platform      = require('./platform'),
  */
 platform.on('data', function (data) {
 
-	var processedData = {};
+	var processedData = data;
+
+	var save = function () {
+
+		var createObject = {
+			index: params.index,
+			type: params.type,
+			body: processedData
+		};
+
+		if (params.id) {
+			if (data[params.id] !== undefined)
+				createObject.id = data[params.id];
+		}
+
+		if (params.parent) {
+			if (data[params.parent] !== undefined)
+				createObject.parent = data[params.parent];
+		}
+
+
+		client.create(createObject, function (error, result) {
+			if (error) {
+				console.error('Error creating record on Elasticsearch', error);
+				platform.handleException(error);
+			} else {
+				platform.log(JSON.stringify({
+					title: 'Record Successfully inserted to Elasticsearch.',
+					data: result
+				}));
+			}
+		});
+	};
 
 	if (params.fields) {
+		processedData = {};
 
-		_.forEach(params.fields, function(field, key) {
+		async.forEachOf(params.fields, function(field, key, callback) {
 
 			var datum = data[field.source_field],
 				processedDatum;
 
 			if (datum !== undefined && datum !== null) {
+
 				if (field.data_type) {
 					try {
 						if (field.data_type === 'String') {
@@ -79,6 +114,8 @@ platform.on('data', function (data) {
 								processedDatum = datum;
 							}
 
+						} else if (field.data_type === 'JSON') {
+							processedDatum = JSON.parse(datum);
 						}
 					} catch (e) {
 						console.error('Data conversion error in Elasticsearch.', e);
@@ -95,39 +132,12 @@ platform.on('data', function (data) {
 			}
 
 			processedData[key] = processedDatum;
+			callback();
 
-		});
-	} else {
-		processedData = data;
-	}
+		}, save);
 
-	var createObject = {
-		index: params.index,
-		type: params.type,
-		body: processedData
-	};
-
-	if (params.id) {
-		if (data[params.id] !== undefined)
-			createObject.id = data[params.id];
-	}
-
-	if (params.parent) {
-		if (data[params.parent] !== undefined)
-			createObject.parent = data[params.parent];
-	}
-
-	client.create(createObject, function (error, result) {
-		if (error) {
-			console.error('Error creating record on Elasticsearch', error);
-			platform.handleException(error);
-		} else {
-			platform.log(JSON.stringify({
-				title: 'Record Successfully inserted to Elasticsearch.',
-				data: result
-			}));
-		}
-	});
+	} else
+		save();
 
 });
 
@@ -157,57 +167,63 @@ platform.once('ready', function (options) {
 
 	var parseFields, auth, apiVersion, host, parent, id;
 
-	if (options.fields) {
-		try {
-			 parseFields = JSON.parse(options.fields);
-
-			_.forEach(parseFields, function(field, key) {
-				if (field.source_field === undefined || field.source_field === null) {
-					throw( new Error('Source field is missing for ' + key + ' in Elasticsearch Plugin'));
-				} else if (field.data_type  && (field.data_type !== 'String' && field.data_type !== 'Integer' &&
-					field.data_type !== 'Float'  && field.data_type !== 'Boolean' &&
-					field.data_type !== 'DateTime')) {
-					throw(new Error('Invalid Data Type for ' + key + ' allowed data types are (String, Integer, Float, Boolean, DateTime) in Elasticsearch Plugin'));
-				}
-			});
-
-		} catch (e) {
+	var init = function(e){
+		if (e) {
 			console.error('Error parsing JSON field configuration for Elasticsearch.', e);
-			platform.handleException(e);
-			return;
+			return platform.handleException(e);
 		}
-	}
 
+		if (options.user) {
+			if (options.password)
+				auth =  options.user + ':' + options.password + '@';
+			else
+				auth =  options.user + ':@';
+		}
 
-	if (options.user) {
-		if (options.password)
-			auth =  options.user + ':' + options.password + '@';
-		else
-			auth =  options.user + ':@';
-	}
+		apiVersion = (options.apiVersion ? options.apiVersion: '1.0');
+		parent 	   = (options.parent ? options.parent: null);
+		id 		   = (options.id ? options.id: null);
 
-	apiVersion = (options.apiVersion ? options.apiVersion: '1.0');
-	parent 	   = (options.parent ? options.parent: null);
-	id 		   = (options.id ? options.id: null);
+		host       = options.protocol + '://' + auth + options.host;
 
-	host       = options.protocol + '://' + auth + options.host;
+		if (options.port)
+			host = host + ':' + options.port;
 
-	if (options.port)
-		host = host + ':' + options.port;
+		params = {
+			parent     : parent,
+			type       : options.type,
+			index      : options.index,
+			id         : id,
+			fields     : parseFields
+		};
 
-	params = {
-		parent     : parent,
-		type       : options.type,
-		index      : options.index,
-		id         : id,
-		fields     : parseFields
+		client = new elasticsearch.Client({
+			host: host,
+			apiVersion: apiVersion
+		});
+
+		platform.log('Elasticsearch plugin ready.');
+		platform.notifyReady();
 	};
 
-	client = new elasticsearch.Client({
-		host: host,
-		apiVersion: apiVersion
-	});
+	if (options.fields) {
 
-	platform.log('Elasticsearch plugin ready.');
-	platform.notifyReady();
+			parseFields = JSON.parse(options.fields);
+
+			async.forEachOf(parseFields, function(field, key, callback) {
+				if (_.isEmpty(field.source_field)){
+					callback( new Error('Source field is missing for ' + key + ' in Elasticsearch Plugin'));
+				} else if (field.data_type  && (field.data_type !== 'String' && field.data_type !== 'Integer' &&
+					field.data_type !== 'Float'  && field.data_type !== 'Boolean' &&
+					field.data_type !== 'DateTime' && field.data_type !== 'JSON')) {
+					callback(new Error('Invalid Data Type for ' + key + ' allowed data types are (String, Integer, Float, Boolean, DateTime) in Elasticsearch Plugin'));
+				} else
+					callback();
+
+			}, init);
+
+	} else
+		init(null);
+
+
 });

@@ -13,8 +13,8 @@
   "port": {
 	"label": "Port",
 	"type": "Number",
-	"required": true,
-	"help": "Port for the elasticsearch storage."
+	"required": false,
+	"help": "(Optional) Port for the elasticsearch storage."
   },
   "protocol": {
 	"label": "Protocol",
@@ -43,32 +43,32 @@
   },
   "index": {
 	"label": "Index",
-	"type": "Stirng",
+	"type": "String",
 	"required": true,
 	"help": "Name of the elasticsearch Index where the Type is located."
   },
   "type": {
 	"label": "Type",
-	"type": "Stirng",
+	"type": "String",
 	"required": true,
 	"help": "Name of the Type where the will be stored."
   },
   "id": {
 	"label": "Id",
-	"type": "Stirng",
+	"type": "String",
 	"required": false,
 	"help": "(Optional) If blank no id will be used and assume it is auto-incremented, otherwise it will store with the field specified as the id."
   },
   "parent": {
 	"label": "Parent Field Name",
-	"type": "Stirng",
+	"type": "String",
 	"required": false,
 	"help": "(Optional) If blank no parent will be used, otherwise it will store with a prent."
   },
   "fields": {
 	"label": "Fields",
-	"type": "Object",
+	"type": "JSON",
 	"required": false,
-	"help": " (Optional) Data will be inserted as is if this is blank. List of the Table Fields/Columns. Input for this field is in JSON format {\"(field_name)\" : {\"source_field\" : \"value\", \"data_type\": \"value\", \"format\": \"value\"}}. field_name will be the name of the column in the MySQL Table, source_field (required) value will be the name of the field in the JSON Data passed to the plugin, data_type (optional) there are 5 available data types that will convert data to it's proper type before saving we have String, Integer, Float, Boolean and DateTime leaving this blank will just use the current data for the field, format is only available for DateTime data_type this will allow users to format the date/time before saving i.e. (YYYY-MM-DD HH:mm:ss) kindly refer to the moment node module for more details."
+	"help": "(Optional) Data will be inserted as is if this is blank. List of the Table Fields/Columns. Input for this field is in JSON format {\"(field_name)\" : {\"source_field\" : \"value\", \"data_type\": \"value\", \"format\": \"value\"}}. field_name will be the name of the column in the MySQL Table, source_field (required) value will be the name of the field in the JSON Data passed to the plugin, data_type (optional) there are 6 available data types that will convert data to it's proper type before saving we have String, Integer, Float, Boolean, DateTime and JSON leaving this blank will just use the current data for the field, format is only available for DateTime data_type this will allow users to format the date/time before saving i.e. (YYYY-MM-DD HH:mm:ss) kindly refer to the moment node module for more details."
   }
 }
