@@ -1,10 +1,9 @@
 'use strict';
 
-var _             = require('lodash'),
-	async         = require('async'),
+var async         = require('async'),
 	moment        = require('moment'),
 	platform      = require('./platform'),
-	elasticsearch = require('elasticsearch'),
+	isPlainObject = require('lodash.isplainobject'),
 	params        = {},
 	client;
 
@@ -57,7 +56,7 @@ platform.on('data', function (data) {
 				if (field.data_type) {
 					try {
 						if (field.data_type === 'String') {
-							if (_.isPlainObject(datum))
+							if (isPlainObject(datum))
 								processedDatum = JSON.stringify(datum);
 							else
 								processedDatum = ''.concat(datum);
@@ -143,8 +142,10 @@ platform.on('close', function () {
  * Listen for the ready event.
  */
 platform.once('ready', function (options) {
-
-	var parseFields, auth, apiVersion, host, parent, id;
+	var config        = require('./config.json'),
+		isEmpty       = require('lodash.isempty'),
+		elasticsearch = require('elasticsearch'),
+		parseFields, auth, apiVersion, host, parent, id;
 
 	var init = function (e) {
 		if (e) {
@@ -159,7 +160,7 @@ platform.once('ready', function (options) {
 				auth = options.user + ':@';
 		}
 
-		apiVersion = (options.apiVersion ? options.apiVersion : '1.0');
+		apiVersion = options.apiVersion || config.apiVersion.default;
 		parent = (options.parent ? options.parent : null);
 		id = (options.id ? options.id : null);
 
@@ -169,9 +170,9 @@ platform.once('ready', function (options) {
 			host = host + ':' + options.port;
 
 		params = {
-			parent: parent,
-			type: options.type,
 			index: options.index,
+			type: options.type,
+			parent: parent,
 			id: id,
 			fields: parseFields
 		};
@@ -181,7 +182,7 @@ platform.once('ready', function (options) {
 			apiVersion: apiVersion
 		});
 
-		platform.log('Elasticsearch plugin ready.');
+		platform.log('Elasticsearch plugin initialized.');
 		platform.notifyReady();
 	};
 
@@ -198,7 +199,7 @@ platform.once('ready', function (options) {
 		}
 
 		async.forEachOf(parseFields, function (field, key, callback) {
-			if (_.isEmpty(field.source_field)) {
+			if (isEmpty(field.source_field)) {
 				callback(new Error('Source field is missing for ' + key + ' in Elasticsearch Plugin'));
 			} else if (field.data_type && (field.data_type !== 'String' && field.data_type !== 'Integer' &&
 				field.data_type !== 'Float' && field.data_type !== 'Boolean' &&
