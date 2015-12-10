@@ -1,18 +1,16 @@
 'use strict';
 
-var platform      = require('./platform'),
-	elasticsearch = require('elasticsearch'),
-	async   	  = require('async'),
-	_			  = require('lodash'),
-	isJSON        = require('is-json'),
-	moment		  = require('moment'),
-	params = {}, client;
+var async         = require('async'),
+	moment        = require('moment'),
+	platform      = require('./platform'),
+	isPlainObject = require('lodash.isplainobject'),
+	params        = {},
+	client;
 
 /*
  * Listen for the data event.
  */
 platform.on('data', function (data) {
-
 	var processedData = data;
 
 	var save = function () {
@@ -50,23 +48,19 @@ platform.on('data', function (data) {
 	if (params.fields) {
 		processedData = {};
 
-		async.forEachOf(params.fields, function(field, key, callback) {
-
+		async.forEachOf(params.fields, function (field, key, callback) {
 			var datum = data[field.source_field],
 				processedDatum;
 
 			if (datum !== undefined && datum !== null) {
-
 				if (field.data_type) {
 					try {
 						if (field.data_type === 'String') {
-
-							if (isJSON(datum))
+							if (isPlainObject(datum))
 								processedDatum = JSON.stringify(datum);
 							else
-								processedDatum = String(datum);
-
-						} else if (field.data_type === 'Integer')  {
+								processedDatum = ''.concat(datum);
+						} else if (field.data_type === 'Integer') {
 
 							var intData = parseInt(datum);
 
@@ -75,7 +69,7 @@ platform.on('data', function (data) {
 							else
 								processedDatum = intData;
 
-						} else if (field.data_type === 'Float')  {
+						} else if (field.data_type === 'Float') {
 
 							var floatData = parseFloat(datum);
 
@@ -102,14 +96,11 @@ platform.on('data', function (data) {
 
 							var dtm = new Date(datum);
 
-							if (!isNaN( dtm.getTime())) {
-
+							if (!isNaN(dtm.getTime())) {
 								if (field.format !== undefined)
 									processedDatum = moment(dtm).format(field.format);
 								else
 									processedDatum = dtm;
-
-
 							} else {
 								processedDatum = datum;
 							}
@@ -138,36 +129,25 @@ platform.on('data', function (data) {
 
 	} else
 		save();
-
 });
 
 /*
  * Event to listen to in order to gracefully release all resources bound to this service.
  */
 platform.on('close', function () {
-	var domain = require('domain');
-	var d = domain.create();
-
-	d.on('error', function(error) {
-		console.error(error);
-		platform.handleException(error);
-		platform.notifyClose();
-	});
-
-	d.run(function() {
-		// TODO: Release all resources and close connections etc.
-		platform.notifyClose(); // Notify the platform that resources have been released.
-	});
+	platform.notifyClose();
 });
 
 /*
  * Listen for the ready event.
  */
 platform.once('ready', function (options) {
+	var config        = require('./config.json'),
+		isEmpty       = require('lodash.isempty'),
+		elasticsearch = require('elasticsearch'),
+		parseFields, auth, apiVersion, host, parent, id;
 
-	var parseFields, auth, apiVersion, host, parent, id;
-
-	var init = function(e){
+	var init = function (e) {
 		if (e) {
 			console.error('Error parsing JSON field configuration for Elasticsearch.', e);
 			return platform.handleException(e);
@@ -175,26 +155,26 @@ platform.once('ready', function (options) {
 
 		if (options.user) {
 			if (options.password)
-				auth =  options.user + ':' + options.password + '@';
+				auth = options.user + ':' + options.password + '@';
 			else
-				auth =  options.user + ':@';
+				auth = options.user + ':@';
 		}
 
-		apiVersion = (options.apiVersion ? options.apiVersion: '1.0');
-		parent 	   = (options.parent ? options.parent: null);
-		id 		   = (options.id ? options.id: null);
+		apiVersion = options.apiVersion || config.apiVersion.default;
+		parent = (options.parent ? options.parent : null);
+		id = (options.id ? options.id : null);
 
-		host       = options.protocol + '://' + auth + options.host;
+		host = options.protocol + '://' + auth + options.host;
 
 		if (options.port)
 			host = host + ':' + options.port;
 
 		params = {
-			parent     : parent,
-			type       : options.type,
-			index      : options.index,
-			id         : id,
-			fields     : parseFields
+			index: options.index,
+			type: options.type,
+			parent: parent,
+			id: id,
+			fields: parseFields
 		};
 
 		client = new elasticsearch.Client({
@@ -202,28 +182,34 @@ platform.once('ready', function (options) {
 			apiVersion: apiVersion
 		});
 
-		platform.log('Elasticsearch plugin ready.');
+		platform.log('Elasticsearch plugin initialized.');
 		platform.notifyReady();
 	};
 
 	if (options.fields) {
-
+		try {
 			parseFields = JSON.parse(options.fields);
+		}
+		catch (ex) {
+			platform.handleException(new Error('Invalid option parameter: fields. Must be a valid JSON String.'));
 
-			async.forEachOf(parseFields, function(field, key, callback) {
-				if (_.isEmpty(field.source_field)){
-					callback( new Error('Source field is missing for ' + key + ' in Elasticsearch Plugin'));
-				} else if (field.data_type  && (field.data_type !== 'String' && field.data_type !== 'Integer' &&
-					field.data_type !== 'Float'  && field.data_type !== 'Boolean' &&
-					field.data_type !== 'DateTime' && field.data_type !== 'JSON')) {
-					callback(new Error('Invalid Data Type for ' + key + ' allowed data types are (String, Integer, Float, Boolean, DateTime) in Elasticsearch Plugin'));
-				} else
-					callback();
+			return setTimeout(function () {
+				process.exit(1);
+			}, 2000);
+		}
 
-			}, init);
+		async.forEachOf(parseFields, function (field, key, callback) {
+			if (isEmpty(field.source_field)) {
+				callback(new Error('Source field is missing for ' + key + ' in Elasticsearch Plugin'));
+			} else if (field.data_type && (field.data_type !== 'String' && field.data_type !== 'Integer' &&
+				field.data_type !== 'Float' && field.data_type !== 'Boolean' &&
+				field.data_type !== 'DateTime' && field.data_type !== 'JSON')) {
+				callback(new Error('Invalid Data Type for ' + key + ' allowed data types are (String, Integer, Float, Boolean, DateTime) in Elasticsearch Plugin'));
+			} else
+				callback();
+
+		}, init);
 
 	} else
 		init(null);
-
-
 });
